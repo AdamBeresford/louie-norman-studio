@@ -3,7 +3,7 @@
   "version": 1,
   "newProjectRoot": "projects",
   "projects": {
-    "louie-norman-portfolio": {
+    "louie-norman-studio": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:component": {
@@ -65,10 +65,10 @@
           },
           "configurations": {
             "production": {
-              "buildTarget": "louie-norman-portfolio:build:production"
+              "buildTarget": "louie-norman-studio:build:production"
             },
             "development": {
-              "buildTarget": "louie-norman-portfolio:build:development"
+              "buildTarget": "louie-norman-studio:build:development"
             }
           },
           "defaultConfiguration": "development"
@@ -76,7 +76,7 @@
         "extract-i18n": {
           "builder": "@angular-devkit/build-angular:extract-i18n",
           "options": {
-            "buildTarget": "louie-norman-portfolio:build"
+            "buildTarget": "louie-norman-studio:build"
           }
         },
         "test": {
