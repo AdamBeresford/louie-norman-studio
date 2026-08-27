@@ -9,6 +9,21 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3000;
 
+const SIGNED_URL_TTL_SECONDS = 86400;
+
+// Media types recognised by the front-end, keyed by file extension.
+// A .pdf object is a placeholder frame rendered by the front-end as a text box.
+const MEDIA_TYPE_BY_EXTENSION = {
+  '.jpg': 'image',
+  '.jpeg': 'image',
+  '.png': 'image',
+  '.gif': 'image',
+  '.webp': 'image',
+  '.mp4': 'video',
+  '.webm': 'video',
+  '.pdf': 'text',
+};
+
 // Set up CORS configuration
 app.use(cors({
   origin: 'https://www.louienorman.com', // Allow only your domain
@@ -34,55 +49,64 @@ const s3Client = new S3Client({
   },
 });
 
-// Helper function to generate signed URLs for S3 objects
-const generateUrls = async (bucketName, files) => {
-  const signedUrls = await Promise.all(
-    files.map(async file => {
-      const command = new GetObjectCommand({
-        Bucket: bucketName,
-        Key: file,
-      });
-      const url = await getSignedUrl(s3Client, command, { expiresIn: 86400 });
-      return url;
-    })
-  );
-  return signedUrls;
+const mediaTypeForKey = (key) => MEDIA_TYPE_BY_EXTENSION[path.extname(key).toLowerCase()];
+
+// Objects live one folder deep under the section prefix
+// (e.g. assets/portfolio/<project>/<file>); objects directly under the
+// prefix (e.g. assets/about/<file>) belong to no project.
+const projectForKey = (key, prefix) => {
+  const segments = key.slice(prefix.length).split('/');
+  return segments.length > 1 ? segments[0] : null;
 };
 
-// Helper function to list objects in an S3 bucket
-const listS3Objects = async (bucketName, prefix) => {
-  try {
-    const command = new ListObjectsV2Command({
+// List every object key under a prefix, following pagination.
+const listAllKeys = async (bucketName, prefix) => {
+  const keys = [];
+  let continuationToken;
+  do {
+    const data = await s3Client.send(new ListObjectsV2Command({
       Bucket: bucketName,
       Prefix: prefix,
-    });
-    const data = await s3Client.send(command);
-    if (!data.Contents) {
-      console.warn(`No contents found for bucket: ${bucketName}, prefix: ${prefix}`);
-      return [];
+      ContinuationToken: continuationToken,
+    }));
+    for (const item of data.Contents ?? []) {
+      keys.push(item.Key);
     }
-    const files = data.Contents.map(item => item.Key);
-    return await generateUrls(bucketName, files);
+    continuationToken = data.IsTruncated ? data.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return keys;
+};
+
+// Display order is the lexicographic order of the object keys; the sort makes
+// that explicit rather than relying on how S3 happens to return the listing.
+const listSectionMedia = async (bucketName, prefix) => {
+  const keys = (await listAllKeys(bucketName, prefix))
+    .filter(key => mediaTypeForKey(key))
+    .sort();
+  return Promise.all(keys.map(async key => ({
+    type: mediaTypeForKey(key),
+    project: projectForKey(key, prefix),
+    url: await getSignedUrl(
+      s3Client,
+      new GetObjectCommand({ Bucket: bucketName, Key: key }),
+      { expiresIn: SIGNED_URL_TTL_SECONDS }
+    ),
+  })));
+};
+
+const sectionMediaHandler = (prefix) => async (req, res) => {
+  try {
+    const media = await listSectionMedia(process.env.AWS_BUCKET_NAME, prefix);
+    res.json(media);
   } catch (error) {
-    console.error('Error listing S3 objects:', error);
-    return [];
+    console.error(`Error listing S3 objects for prefix ${prefix}:`, error);
+    res.status(500).json({ error: 'Failed to load media' });
   }
 };
 
 // Define API routes BEFORE the catch-all route
-app.get('/api/portfolio/images', async (req, res) => {
-  const bucketName = process.env.AWS_BUCKET_NAME;
-  const prefix = 'assets/portfolio/';
-  const urls = await listS3Objects(bucketName, prefix);
-  res.json(urls);
-});
-
-app.get('/api/about/images', async (req, res) => {
-  const bucketName = process.env.AWS_BUCKET_NAME;
-  const prefix = 'assets/about/';
-  const urls = await listS3Objects(bucketName, prefix);
-  res.json(urls);
-});
+app.get('/api/portfolio/images', sectionMediaHandler('assets/portfolio/'));
+app.get('/api/about/images', sectionMediaHandler('assets/about/'));
 
 // Catch-all route to serve the Angular app's index.html file
 app.get('/*', function(req, res) {
@@ -90,6 +114,10 @@ app.get('/*', function(req, res) {
 });
 
 // Start the server
-app.listen(port, () => {
-  console.log(`Server is running on port:${port}`);
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Server is running on port:${port}`);
+  });
+}
+
+module.exports = { mediaTypeForKey, projectForKey };
