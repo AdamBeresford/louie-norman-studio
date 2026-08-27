@@ -6,9 +6,8 @@ import { HeaderComponent } from './header/header.component';
 import { MediaService } from './services/media.service';
 import { MediaModel } from './model/media-model';
 import { MediaType } from './model/media-type';
-import { TextService } from './services/text.service';
-import { ProjectLinksModel } from './model/project-links-model';
-import { TextModel } from './model/text-model';
+import { ProjectService } from './services/project.service';
+import { ProjectConfig } from './model/project-config';
 
 @Component({
   selector: 'app-portfolio',
@@ -39,19 +38,17 @@ export class PortfolioComponent implements OnInit {
   currentTextBox = '';
   projects: { [key: string]: MediaModel[] } = {};
 
-  projectLinks: ProjectLinksModel[] = [];
-  textBoxes: TextModel[] = [];
+  projectLinks: ProjectConfig[] = [];
 
   private router = inject(Router);
   private imageService = inject(MediaService);
-  private textService = inject(TextService);
+  private projectService = inject(ProjectService);
 
   ngOnInit(): void {
     this.router.navigateByUrl('#from-stone-to-stone');
     this.preloadImages();
     this.setupRouterEvents();
-    this.projectLinks = this.textService.projectLinks;
-    this.textBoxes = this.textService.textBoxes;
+    this.projectLinks = this.projectService.projects;
   }
 
   preloadImages(): void {
@@ -88,11 +85,7 @@ export class PortfolioComponent implements OnInit {
     this.currentProject = projectId;
     this.currentMediaIndex = 0;
     this.currentMedia = this.projects[projectId][0];
-    if (this.currentProject === 'rio-ferdinand-foundation' || this.currentProject === 'un-dance') {
-      this.projectDarkMode = true;
-    } else {
-      this.projectDarkMode = false;
-    }
+    this.projectDarkMode = this.projectService.getProject(projectId)?.darkMode ?? false;
   }
 
   getBackgroundImage(): string {
@@ -101,11 +94,7 @@ export class PortfolioComponent implements OnInit {
       this.videoDarkMode = false;
       return `url(${currentProject[this.currentMediaIndex].path})`;
     } else if (currentProject[this.currentMediaIndex].type === MediaType.Pdf) {
-      const fileName = this.getFileName(currentProject[this.currentMediaIndex].path);
-      const textBox = this.textBoxes.find(box => box.name === fileName);
-      if (textBox) {
-        this.currentTextBox = textBox.text;
-      }
+      this.currentTextBox = this.projectService.getProject(this.currentProject)?.text ?? '';
       this.videoDarkMode = false;
       return '';
     } else {
@@ -131,13 +120,6 @@ export class PortfolioComponent implements OnInit {
 
   handleProjectClick(event: MouseEvent): void {
     event.stopPropagation();
-  }
-
-  private getFileName(path: string): string {
-    const segments = path.split('/');
-    const fileNameWithExtension = segments[segments.length - 1];
-    const fileName = fileNameWithExtension.split('.')[0];
-    return fileName;
   }
 
 }

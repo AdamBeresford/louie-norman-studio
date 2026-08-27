@@ -23,8 +23,8 @@
             <a class="project-link"
               (click)="handleProjectClick($event)"
               [routerLink]="[]" 
-              [fragment]="project.link"
-              [ngClass]="{'dark-mode': isDarkMode(), 'selected': currentProject === project.link}">
+              [fragment]="project.slug"
+              [ngClass]="{'dark-mode': isDarkMode(), 'selected': currentProject === project.slug}">
               {{ project.name }}
             </a>
           </li>
