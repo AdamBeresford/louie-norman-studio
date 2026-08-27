@@ -3,7 +3,7 @@ node_modules/
 
 # Build output
 dist/
-.angular/cache/
+**/.angular/cache/
 
 # IDE and OS generated files
 .idea/
