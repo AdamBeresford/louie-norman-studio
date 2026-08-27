@@ -28,7 +28,6 @@ export class HeaderComponent implements OnInit {
     } else {
       this.currentRoute = currentUrl;
     }
-    console.log(this.currentRoute);
   }
 
   isActive(route: string): boolean {

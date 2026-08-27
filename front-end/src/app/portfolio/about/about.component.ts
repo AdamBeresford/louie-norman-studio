@@ -17,7 +17,8 @@ import { MediaService } from '../services/media.service';
 export class AboutComponent implements OnInit {
   currentImageIndex = 0;
   images: string[] = [];
-  
+  backgroundImage = '';
+
   educationItems = [
     'Education',
     'Kingston School of Art',
@@ -39,21 +40,25 @@ export class AboutComponent implements OnInit {
   private mediaService = inject(MediaService);
 
   ngOnInit(): void {
-    this.mediaService.getAboutImages().subscribe(paths => {
-      this.images = paths;
-      this.images.forEach(imagePath => {
-        const img = new Image();
-        img.src = imagePath;
-      });
+    this.mediaService.getAboutImages().subscribe(images => {
+      this.images = images;
+      this.showImage(0);
+      // Warm the browser cache so cycling through the images is instant.
+      for (const image of images) {
+        new Image().src = image;
+      }
     });
   }
 
   changeBackground(): void {
-    this.currentImageIndex = (this.currentImageIndex + 1) % this.images.length;
+    if (this.images.length) {
+      this.showImage((this.currentImageIndex + 1) % this.images.length);
+    }
   }
 
-  getBackgroundImage(): string {
-    return `url(${this.images[this.currentImageIndex]})`;
+  private showImage(index: number): void {
+    this.currentImageIndex = index;
+    this.backgroundImage = `url(${this.images[index]})`;
   }
 
 }

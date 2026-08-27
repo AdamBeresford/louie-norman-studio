@@ -19,9 +19,6 @@ import { ProjectConfig } from './model/project-config';
     CommonModule,
     RouterModule,
     HeaderComponent
-  ],
-  providers: [
-    MediaService
   ]
 })
 export class PortfolioComponent implements OnInit {
