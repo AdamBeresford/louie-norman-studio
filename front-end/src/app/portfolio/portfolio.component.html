@@ -1,8 +1,8 @@
 @if (!isLoading) {
-  <div class="portfolio-container" 
-    (click)="changeBackground()" 
-    [style.backgroundImage]="getBackgroundImage()"
-    [ngClass]="isDarkMode()"
+  <div class="portfolio-container"
+    (click)="changeBackground()"
+    [style.backgroundImage]="backgroundImage"
+    [ngClass]="darkMode ? 'dark-mode' : ''"
     >
 
     @if (currentMedia.type === MediaType.Video) {
@@ -10,7 +10,7 @@
     }
 
     @if (currentMedia.type === MediaType.Text) {
-      <p class="text-box" [ngClass]="isDarkMode()">{{ currentTextBox }}</p>
+      <p class="text-box" [ngClass]="darkMode ? 'dark-mode' : ''">{{ currentTextBox }}</p>
     }
 
 
@@ -18,20 +18,19 @@
 
     <div class="sidebar">
       <ul>
-        @for (project of projectLinks; track project) {
+        @for (project of projectLinks; track project.slug) {
           <li>
             <a class="project-link"
               (click)="handleProjectClick($event)"
-              [routerLink]="[]" 
+              [routerLink]="[]"
               [fragment]="project.slug"
-              [ngClass]="{'dark-mode': isDarkMode(), 'selected': currentProject === project.slug}">
+              [ngClass]="{'dark-mode': darkMode, 'selected': currentProject === project.slug}">
               {{ project.name }}
             </a>
           </li>
         }
       </ul>
     </div>
-    
+
   </div>
 }
-  
