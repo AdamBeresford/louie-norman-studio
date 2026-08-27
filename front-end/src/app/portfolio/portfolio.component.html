@@ -6,10 +6,10 @@
     >
 
     @if (currentMedia.type === MediaType.Video) {
-      <video class="background-video" [src]="currentMedia.path" autoplay loop></video>
+      <video class="background-video" [src]="currentMedia.url" autoplay loop></video>
     }
 
-    @if (currentMedia.type === MediaType.Pdf) {
+    @if (currentMedia.type === MediaType.Text) {
       <p class="text-box" [ngClass]="isDarkMode()">{{ currentTextBox }}</p>
     }
 

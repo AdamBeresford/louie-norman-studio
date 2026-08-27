@@ -39,8 +39,8 @@ export class AboutComponent implements OnInit {
   private mediaService = inject(MediaService);
 
   ngOnInit(): void {
-    this.mediaService.getAllAboutImages().subscribe(paths => {
-      this.images = paths.map(path => path);
+    this.mediaService.getAboutImages().subscribe(paths => {
+      this.images = paths;
       this.images.forEach(imagePath => {
         const img = new Image();
         img.src = imagePath;

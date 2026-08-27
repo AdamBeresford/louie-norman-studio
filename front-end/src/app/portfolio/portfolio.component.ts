@@ -33,7 +33,7 @@ export class PortfolioComponent implements OnInit {
   isLoading = true;
 
   currentMediaIndex = 0;
-  currentMedia: MediaModel = new MediaModel();
+  currentMedia!: MediaModel;
   currentProject = '';
   currentTextBox = '';
   projects: { [key: string]: MediaModel[] } = {};
@@ -52,7 +52,7 @@ export class PortfolioComponent implements OnInit {
   }
 
   preloadImages(): void {
-    this.imageService.getAllPortfolioMedia().subscribe(media => {
+    this.imageService.getPortfolioMedia().subscribe(media => {
       this.currentMedia = media[0];
       this.projects = this.groupMediaByProject(media);
       this.isLoading = false;
@@ -62,6 +62,9 @@ export class PortfolioComponent implements OnInit {
   groupMediaByProject(mediaArray: MediaModel[]): { [key: string]: MediaModel[] } {
     let groupedByProject: { [key: string]: MediaModel[] } = {};
     for (let media of mediaArray) {
+      if (!media.project) {
+        continue;
+      }
       if (!groupedByProject[media.project]) {
         groupedByProject[media.project] = [];
       }
@@ -92,8 +95,8 @@ export class PortfolioComponent implements OnInit {
     const currentProject = this.projects[this.currentProject];
     if (currentProject[this.currentMediaIndex].type === MediaType.Image) {
       this.videoDarkMode = false;
-      return `url(${currentProject[this.currentMediaIndex].path})`;
-    } else if (currentProject[this.currentMediaIndex].type === MediaType.Pdf) {
+      return `url(${currentProject[this.currentMediaIndex].url})`;
+    } else if (currentProject[this.currentMediaIndex].type === MediaType.Text) {
       this.currentTextBox = this.projectService.getProject(this.currentProject)?.text ?? '';
       this.videoDarkMode = false;
       return '';

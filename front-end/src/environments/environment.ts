@@ -1,4 +1,6 @@
 export const environment = {
     production: false,
-    baseUrl: 'http://louie-norman-studio:3000/api/'
+    // Relative so requests hit whichever origin serves the app: the Express
+    // server in production, or the dev-server proxy (proxy.conf.json) locally.
+    baseUrl: '/api/'
 };
