@@ -5,8 +5,9 @@ const crypto = require('crypto');
 const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const cookieParser = require('cookie-parser');
-const { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+const { createPresignedPost } = require('@aws-sdk/s3-presigned-post');
 require('dotenv').config();
 
 const app = express();
@@ -212,6 +213,48 @@ const buildManifestFromListing = async (bucketName) => {
   };
 };
 
+const SLUG_PATTERN = /^[a-z0-9-]+$/;
+
+const isValidFrame = (frame, { allowText }) => {
+  if (!frame || typeof frame !== 'object') {
+    return false;
+  }
+  if (frame.type === 'text') {
+    return allowText;
+  }
+  if (frame.type !== 'image' && frame.type !== 'video') {
+    return false;
+  }
+  return typeof frame.key === 'string'
+    && (frame.key.startsWith(PORTFOLIO_PREFIX) || frame.key.startsWith(ABOUT_PREFIX));
+};
+
+const isValidManifest = (manifest) =>
+  Boolean(manifest) && typeof manifest === 'object'
+  && manifest.version === 1
+  && Array.isArray(manifest.projects)
+  && manifest.projects.every(project =>
+    project && typeof project === 'object'
+    && typeof project.slug === 'string' && SLUG_PATTERN.test(project.slug)
+    && Array.isArray(project.frames)
+    && project.frames.every(frame => isValidFrame(frame, { allowText: true })))
+  && Array.isArray(manifest.about)
+  && manifest.about.every(frame => isValidFrame(frame, { allowText: false }));
+
+// Strip anything beyond the fields the manifest owns (e.g. signed urls the
+// admin client holds alongside each frame).
+const normalizeFrame = (frame) =>
+  frame.type === 'text' ? { type: 'text' } : { type: frame.type, key: frame.key };
+
+const normalizeManifest = (manifest) => ({
+  version: 1,
+  projects: manifest.projects.map(project => ({
+    slug: project.slug,
+    frames: project.frames.map(normalizeFrame),
+  })),
+  about: manifest.about.map(normalizeFrame),
+});
+
 // One media item as consumed by the front-end. Text frames carry no object,
 // so their url is null.
 const mediaItem = async (bucketName, frame, project) => ({
@@ -284,6 +327,140 @@ app.get('/api/admin/session', (req, res) => {
     return res.status(401).json({ authenticated: false });
   }
   res.json({ authenticated: true });
+});
+
+const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+const UPLOAD_URL_TTL_SECONDS = 300;
+
+const signFrames = (bucketName, frames) => Promise.all(frames.map(async frame => (
+  frame.key
+    ? {
+        ...normalizeFrame(frame),
+        url: await getSignedUrl(
+          s3Client,
+          new GetObjectCommand({ Bucket: bucketName, Key: frame.key }),
+          { expiresIn: SIGNED_URL_TTL_SECONDS }
+        ),
+      }
+    : normalizeFrame(frame)
+)));
+
+// The manifest with a signed url attached to every keyed frame — what the
+// admin UI edits.
+app.get('/api/admin/media', requireAdmin, async (req, res) => {
+  try {
+    const bucketName = process.env.AWS_BUCKET_NAME;
+    const manifest = (await getManifest(bucketName)) ?? await buildManifestFromListing(bucketName);
+    res.json({
+      version: manifest.version,
+      projects: await Promise.all(manifest.projects.map(async project => ({
+        slug: project.slug,
+        frames: await signFrames(bucketName, project.frames),
+      }))),
+      about: await signFrames(bucketName, manifest.about),
+    });
+  } catch (error) {
+    console.error('Error building admin media:', error);
+    res.status(500).json({ error: 'Failed to load media' });
+  }
+});
+
+// Presigned POST so the browser uploads straight to S3 — large videos never
+// pass through this server (Heroku kills requests at 30s). The returned key
+// is only displayed once the client adds it to the manifest.
+app.post('/api/admin/upload-url', requireAdmin, async (req, res) => {
+  try {
+    const bucketName = process.env.AWS_BUCKET_NAME;
+    const { section, project, filename, contentType } = req.body ?? {};
+
+    const extension = typeof filename === 'string' ? path.extname(filename).toLowerCase() : '';
+    const type = MEDIA_TYPE_BY_EXTENSION[extension];
+    if (type !== 'image' && type !== 'video') {
+      return res.status(400).json({ error: 'Unsupported file type' });
+    }
+    if (typeof contentType !== 'string' || !contentType.startsWith(`${type}/`)) {
+      return res.status(400).json({ error: 'Content type does not match file extension' });
+    }
+
+    let prefix;
+    if (section === 'about') {
+      prefix = ABOUT_PREFIX;
+    } else if (section === 'portfolio') {
+      const manifest = (await getManifest(bucketName)) ?? await buildManifestFromListing(bucketName);
+      if (typeof project !== 'string' || !manifest.projects.some(candidate => candidate.slug === project)) {
+        return res.status(400).json({ error: 'Unknown project' });
+      }
+      prefix = `${PORTFOLIO_PREFIX}${project}/`;
+    } else {
+      return res.status(400).json({ error: 'Unknown section' });
+    }
+
+    // Filenames carry no meaning any more (order lives in the manifest); keep
+    // a sanitised base for readability and add a suffix to avoid collisions.
+    const base = path.basename(filename, extension)
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'media';
+    const key = `${prefix}${base}-${crypto.randomBytes(4).toString('hex')}${extension}`;
+
+    const { url, fields } = await createPresignedPost(s3Client, {
+      Bucket: bucketName,
+      Key: key,
+      Conditions: [
+        ['content-length-range', 1, MAX_UPLOAD_BYTES],
+        ['eq', '$Content-Type', contentType],
+      ],
+      Fields: { 'Content-Type': contentType },
+      Expires: UPLOAD_URL_TTL_SECONDS,
+    });
+    res.json({ url, fields, key, type });
+  } catch (error) {
+    console.error('Error creating upload url:', error);
+    res.status(500).json({ error: 'Failed to create upload url' });
+  }
+});
+
+// Replace the manifest — how the admin UI persists reorders, additions and
+// removals. The saved manifest is normalised to only the fields it owns.
+app.put('/api/admin/manifest', requireAdmin, async (req, res) => {
+  try {
+    if (!isValidManifest(req.body)) {
+      return res.status(400).json({ error: 'Invalid manifest' });
+    }
+    const manifest = normalizeManifest(req.body);
+    await saveManifest(process.env.AWS_BUCKET_NAME, manifest);
+    res.json(manifest);
+  } catch (error) {
+    console.error('Error saving manifest:', error);
+    res.status(500).json({ error: 'Failed to save manifest' });
+  }
+});
+
+// Delete a media object and drop any manifest frames referencing it.
+app.delete('/api/admin/media', requireAdmin, async (req, res) => {
+  try {
+    const bucketName = process.env.AWS_BUCKET_NAME;
+    const key = req.body?.key;
+    if (typeof key !== 'string'
+        || !(key.startsWith(PORTFOLIO_PREFIX) || key.startsWith(ABOUT_PREFIX))
+        || key === MANIFEST_KEY) {
+      return res.status(400).json({ error: 'Invalid key' });
+    }
+    const manifest = await getManifest(bucketName);
+    if (manifest) {
+      await saveManifest(bucketName, {
+        ...manifest,
+        projects: manifest.projects.map(project => ({
+          ...project,
+          frames: project.frames.filter(frame => frame.key !== key),
+        })),
+        about: manifest.about.filter(frame => frame.key !== key),
+      });
+    }
+    await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: key }));
+    res.json({ deleted: key });
+  } catch (error) {
+    console.error('Error deleting media:', error);
+    res.status(500).json({ error: 'Failed to delete media' });
+  }
 });
 
 // Catch-all route to serve the Angular app's index.html file
