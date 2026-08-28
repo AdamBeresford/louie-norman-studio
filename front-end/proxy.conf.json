@@ -1,6 +1,6 @@
 {
     "/api": {
-        "target": "https://www.louienorman.com",
+        "target": "http://localhost:3000",
         "secure": false
     }
 }
