@@ -5,6 +5,7 @@ import { NavigationEnd, Router, RouterModule } from '@angular/router';
 import { filter } from 'rxjs';
 import { HeaderComponent } from './header/header.component';
 import { MediaService } from './services/media.service';
+import { ImagePreloader } from './services/image-preloader';
 import { MediaModel } from './model/media-model';
 import { MediaType } from './model/media-type';
 import { ProjectConfig } from './model/project-config';
@@ -36,6 +37,7 @@ export class PortfolioComponent implements OnInit {
 
   private router = inject(Router);
   private mediaService = inject(MediaService);
+  private preloader = inject(ImagePreloader);
   private destroyRef = inject(DestroyRef);
 
   ngOnInit(): void {
@@ -92,7 +94,10 @@ export class PortfolioComponent implements OnInit {
 
   private selectProject(slug: string): void {
     this.currentProject = slug;
-    if (this.selectedProject()?.frames.length) {
+    const project = this.selectedProject();
+    if (project?.frames.length) {
+      // Covers switching to a project the idle pass has not reached yet.
+      this.preloader.preload(this.imageUrls(project));
       this.showMedia(0);
     }
   }
@@ -112,24 +117,23 @@ export class PortfolioComponent implements OnInit {
   }
 
   /**
-   * Warm the browser cache so cycling through frames is instant: the open
+   * Decode frames ahead of being shown so cycling never flickers: the open
    * project first, then everything else once the browser is idle.
    */
   private preloadImages(): void {
-    const imageUrls = (project: ProjectConfig) => project.frames
-      .filter(frame => frame.type === MediaType.Image && frame.url)
-      .map(frame => frame.url as string);
-    const load = (urls: string[]) => urls.forEach(url => { new Image().src = url; });
-
     const current = this.selectedProject();
     if (current) {
-      load(imageUrls(current));
+      this.preloader.preload(this.imageUrls(current));
     }
-    const remaining = this.projects
-      .filter(project => project !== current)
-      .flatMap(imageUrls);
-    const whenIdle = (window as any).requestIdleCallback ?? ((fn: () => void) => setTimeout(fn, 500));
-    whenIdle(() => load(remaining));
+    this.preloader.preloadWhenIdle(
+      this.projects.filter(project => project !== current).flatMap(project => this.imageUrls(project))
+    );
+  }
+
+  private imageUrls(project: ProjectConfig): string[] {
+    return project.frames
+      .filter(frame => frame.type === MediaType.Image && frame.url)
+      .map(frame => frame.url as string);
   }
 
 }
