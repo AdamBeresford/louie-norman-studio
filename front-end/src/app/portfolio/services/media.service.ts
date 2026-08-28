@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { map, Observable } from 'rxjs';
 import { MediaModel } from '../model/media-model';
+import { ProjectConfig } from '../model/project-config';
 import { environment } from '../../../environments/environment';
 
 @Injectable({
@@ -11,8 +12,9 @@ export class MediaService {
 
   private http = inject(HttpClient);
 
-  getPortfolioMedia(): Observable<MediaModel[]> {
-    return this.http.get<MediaModel[]>(environment.baseUrl + 'portfolio/images');
+  /** Projects in sidebar order, each with its frames in display order. */
+  getPortfolioMedia(): Observable<ProjectConfig[]> {
+    return this.http.get<ProjectConfig[]>(environment.baseUrl + 'portfolio/images');
   }
 
   getAboutImages(): Observable<string[]> {

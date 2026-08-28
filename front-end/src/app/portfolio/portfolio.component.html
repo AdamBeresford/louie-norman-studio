@@ -18,7 +18,7 @@
 
     <div class="sidebar">
       <ul>
-        @for (project of projectLinks; track project.slug) {
+        @for (project of projects; track project.slug) {
           <li>
             <a class="project-link"
               (click)="handleProjectClick($event)"

@@ -7,7 +7,6 @@ import { HeaderComponent } from './header/header.component';
 import { MediaService } from './services/media.service';
 import { MediaModel } from './model/media-model';
 import { MediaType } from './model/media-type';
-import { ProjectService } from './services/project.service';
 import { ProjectConfig } from './model/project-config';
 
 @Component({
@@ -33,25 +32,22 @@ export class PortfolioComponent implements OnInit {
   currentMediaIndex = 0;
   currentMedia!: MediaModel;
   currentProject = '';
-  projects: { [slug: string]: MediaModel[] } = {};
-
-  projectLinks: ProjectConfig[] = [];
+  projects: ProjectConfig[] = [];
 
   private router = inject(Router);
   private mediaService = inject(MediaService);
-  private projectService = inject(ProjectService);
   private destroyRef = inject(DestroyRef);
 
   ngOnInit(): void {
-    this.projectLinks = this.projectService.projects;
-    this.router.navigateByUrl(`#${this.projectLinks[0].slug}`);
     this.setupRouterEvents();
     this.loadMedia();
   }
 
   changeBackground(): void {
-    const media = this.projects[this.currentProject];
-    this.showMedia((this.currentMediaIndex + 1) % media.length);
+    const frames = this.selectedProject()?.frames;
+    if (frames?.length) {
+      this.showMedia((this.currentMediaIndex + 1) % frames.length);
+    }
   }
 
   handleProjectClick(event: MouseEvent): void {
@@ -59,12 +55,20 @@ export class PortfolioComponent implements OnInit {
   }
 
   private loadMedia(): void {
-    this.mediaService.getPortfolioMedia().subscribe(media => {
-      this.projects = this.groupMediaByProject(media);
-      // The initial fragment navigation usually completes before the media
-      // arrives, so re-apply the recorded selection now that it can be shown.
-      this.selectProject(this.projects[this.currentProject] ? this.currentProject : this.projectLinks[0].slug);
+    this.mediaService.getPortfolioMedia().subscribe(projects => {
+      this.projects = projects;
+      // A fragment in the url selects a project; otherwise show the first.
+      // The navigation usually completes before the media arrives, so the
+      // recorded selection is only applied here.
+      const slug = this.projects.some(project => project.slug === this.currentProject)
+        ? this.currentProject
+        : this.projects[0]?.slug;
+      if (slug) {
+        this.router.navigateByUrl(`#${slug}`);
+        this.selectProject(slug);
+      }
       this.isLoading = false;
+      this.preloadImages();
     });
   }
 
@@ -82,32 +86,50 @@ export class PortfolioComponent implements OnInit {
       });
   }
 
+  private selectedProject(): ProjectConfig | undefined {
+    return this.projects.find(project => project.slug === this.currentProject);
+  }
+
   private selectProject(slug: string): void {
     this.currentProject = slug;
-    if (this.projects[slug]) {
+    if (this.selectedProject()?.frames.length) {
       this.showMedia(0);
     }
   }
 
   /** Single place where the displayed frame, and everything derived from it, changes. */
   private showMedia(index: number): void {
-    const media = this.projects[this.currentProject][index];
-    const project = this.projectService.getProject(this.currentProject);
+    const project = this.selectedProject();
+    if (!project) {
+      return;
+    }
+    const media = project.frames[index];
     this.currentMediaIndex = index;
     this.currentMedia = media;
     this.backgroundImage = media.type === MediaType.Image ? `url(${media.url})` : '';
-    this.currentTextBox = media.type === MediaType.Text ? project?.text ?? '' : '';
-    this.darkMode = media.type === MediaType.Video || (project?.darkMode ?? false);
+    this.currentTextBox = media.type === MediaType.Text ? media.text ?? '' : '';
+    this.darkMode = media.type === MediaType.Video || project.darkMode;
   }
 
-  private groupMediaByProject(mediaArray: MediaModel[]): { [slug: string]: MediaModel[] } {
-    const groupedByProject: { [slug: string]: MediaModel[] } = {};
-    for (const media of mediaArray) {
-      if (media.project) {
-        (groupedByProject[media.project] ??= []).push(media);
-      }
+  /**
+   * Warm the browser cache so cycling through frames is instant: the open
+   * project first, then everything else once the browser is idle.
+   */
+  private preloadImages(): void {
+    const imageUrls = (project: ProjectConfig) => project.frames
+      .filter(frame => frame.type === MediaType.Image && frame.url)
+      .map(frame => frame.url as string);
+    const load = (urls: string[]) => urls.forEach(url => { new Image().src = url; });
+
+    const current = this.selectedProject();
+    if (current) {
+      load(imageUrls(current));
     }
-    return groupedByProject;
+    const remaining = this.projects
+      .filter(project => project !== current)
+      .flatMap(imageUrls);
+    const whenIdle = (window as any).requestIdleCallback ?? ((fn: () => void) => setTimeout(fn, 500));
+    whenIdle(() => load(remaining));
   }
 
 }
