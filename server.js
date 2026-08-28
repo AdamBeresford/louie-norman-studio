@@ -1,13 +1,20 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const crypto = require('crypto');
 const helmet = require('helmet');
+const bcrypt = require('bcryptjs');
+const cookieParser = require('cookie-parser');
 const { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Heroku terminates TLS at its router; trust it so req.ip and secure
+// cookies see the real client connection.
+app.set('trust proxy', 1);
 
 const SIGNED_URL_TTL_SECONDS = 86400;
 
@@ -34,6 +41,9 @@ app.use(cors({
   optionsSuccessStatus: 200
 }));
 
+app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
+
 // Serve static files from the Angular app
 app.use(express.static(path.join(__dirname, 'public/browser')));
 
@@ -48,6 +58,71 @@ app.use('/', helmet.hsts({
 const s3Client = new S3Client({
   region: process.env.AWS_REGION,
 });
+
+// ---------------------------------------------------------------------------
+// Admin authentication
+//
+// There is a single admin user (the site owner). Logging in with the admin
+// password — checked against the bcrypt hash in ADMIN_PASSWORD_HASH — sets a
+// signed httpOnly session cookie, and the write endpoints require it. The
+// server-side check is the security boundary; the admin UI is only a client.
+// ---------------------------------------------------------------------------
+const SESSION_COOKIE = 'admin_session';
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 10;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+
+const isProduction = process.env.NODE_ENV === 'production';
+const adminConfigured = () => Boolean(process.env.ADMIN_PASSWORD_HASH && process.env.SESSION_SECRET);
+
+const signSession = (expiresAt) =>
+  crypto.createHmac('sha256', process.env.SESSION_SECRET).update(String(expiresAt)).digest('hex');
+
+const createSessionToken = () => {
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+  return `${expiresAt}.${signSession(expiresAt)}`;
+};
+
+const isValidSessionToken = (token) => {
+  if (!adminConfigured() || typeof token !== 'string') {
+    return false;
+  }
+  const [expiresAt, signature] = token.split('.');
+  if (!/^\d+$/.test(expiresAt ?? '') || !signature || Number(expiresAt) < Date.now()) {
+    return false;
+  }
+  const expected = Buffer.from(signSession(expiresAt));
+  const provided = Buffer.from(signature);
+  return provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
+};
+
+const isAuthenticated = (req) => isValidSessionToken(req.cookies?.[SESSION_COOKIE]);
+
+const requireAdmin = (req, res, next) => {
+  if (!isAuthenticated(req)) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  next();
+};
+
+// Small in-memory brute-force guard: after too many failed attempts an IP is
+// locked out for a while. State resets on restart, which is fine here.
+const loginFailures = new Map();
+
+const loginLocked = (ip) => {
+  const entry = loginFailures.get(ip);
+  return Boolean(entry?.lockedUntil && entry.lockedUntil > Date.now());
+};
+
+const recordLoginFailure = (ip) => {
+  const entry = loginFailures.get(ip) ?? { count: 0 };
+  entry.count += 1;
+  if (entry.count >= LOGIN_MAX_FAILURES) {
+    entry.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
+    entry.count = 0;
+  }
+  loginFailures.set(ip, entry);
+};
 
 const mediaTypeForKey = (key) => MEDIA_TYPE_BY_EXTENSION[path.extname(key).toLowerCase()];
 
@@ -174,6 +249,42 @@ const sectionMediaHandler = (section, buildMedia) => async (req, res) => {
 // Define API routes BEFORE the catch-all route
 app.get('/api/portfolio/images', sectionMediaHandler('portfolio', portfolioMedia));
 app.get('/api/about/images', sectionMediaHandler('about', aboutMedia));
+
+app.post('/api/admin/login', async (req, res) => {
+  if (!adminConfigured()) {
+    return res.status(503).json({ error: 'Admin is not configured' });
+  }
+  if (loginLocked(req.ip)) {
+    return res.status(429).json({ error: 'Too many attempts, try again later' });
+  }
+  const password = req.body?.password;
+  const passwordOk = typeof password === 'string'
+    && await bcrypt.compare(password, process.env.ADMIN_PASSWORD_HASH);
+  if (!passwordOk) {
+    recordLoginFailure(req.ip);
+    return res.status(401).json({ error: 'Wrong password' });
+  }
+  loginFailures.delete(req.ip);
+  res.cookie(SESSION_COOKIE, createSessionToken(), {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: isProduction,
+    maxAge: SESSION_TTL_MS,
+  });
+  res.json({ authenticated: true });
+});
+
+app.post('/api/admin/logout', (req, res) => {
+  res.clearCookie(SESSION_COOKIE);
+  res.json({ authenticated: false });
+});
+
+app.get('/api/admin/session', (req, res) => {
+  if (!isAuthenticated(req)) {
+    return res.status(401).json({ authenticated: false });
+  }
+  res.json({ authenticated: true });
+});
 
 // Catch-all route to serve the Angular app's index.html file
 app.get('/*', function(req, res) {
