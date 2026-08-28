@@ -20,7 +20,7 @@ app.set('trust proxy', 1);
 const SIGNED_URL_TTL_SECONDS = 86400;
 
 const MANIFEST_KEY = 'assets/manifest.json';
-const MANIFEST_VERSION = 2;
+const MANIFEST_VERSION = 3;
 const PORTFOLIO_PREFIX = 'assets/portfolio/';
 const ABOUT_PREFIX = 'assets/about/';
 
@@ -161,20 +161,36 @@ const listAllKeys = async (bucketName, prefix) => {
 const titleCaseSlug = (slug) =>
   slug.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 
+const textList = (value) =>
+  Array.isArray(value) ? value.filter(item => typeof item === 'string') : [];
+
 // Fill in anything an older manifest predates, so a v1 document (projects
-// without a name or dark mode, text frames without their copy) still serves.
-const upgradeManifest = (manifest) => ({
-  version: MANIFEST_VERSION,
-  projects: (manifest.projects ?? []).map(project => ({
-    slug: project.slug,
-    name: typeof project.name === 'string' && project.name.trim() ? project.name : titleCaseSlug(project.slug),
-    darkMode: project.darkMode === true,
-    frames: (project.frames ?? []).map(frame => frame.type === 'text'
-      ? { type: 'text', text: typeof frame.text === 'string' ? frame.text : '' }
-      : { type: frame.type, key: frame.key }),
-  })),
-  about: (manifest.about ?? []).map(frame => ({ type: frame.type, key: frame.key })),
-});
+// without a name or dark mode, text frames without their copy) or a v2 one
+// (about as a bare frame array, no contact details) still serves.
+const upgradeManifest = (manifest) => {
+  const about = Array.isArray(manifest.about) ? { frames: manifest.about } : (manifest.about ?? {});
+  return {
+    version: MANIFEST_VERSION,
+    projects: (manifest.projects ?? []).map(project => ({
+      slug: project.slug,
+      name: typeof project.name === 'string' && project.name.trim() ? project.name : titleCaseSlug(project.slug),
+      darkMode: project.darkMode === true,
+      frames: (project.frames ?? []).map(frame => frame.type === 'text'
+        ? { type: 'text', text: typeof frame.text === 'string' ? frame.text : '' }
+        : { type: frame.type, key: frame.key }),
+    })),
+    about: {
+      frames: (about.frames ?? []).map(frame => ({ type: frame.type, key: frame.key })),
+      // Two lists shown beside the about images; the first line of each is
+      // its heading, exactly as the page renders them.
+      education: textList(about.education),
+      skills: textList(about.skills),
+    },
+    contact: (manifest.contact ?? [])
+      .filter(item => item && typeof item.text === 'string')
+      .map(item => ({ text: item.text, ...(item.url ? { url: item.url } : {}) })),
+  };
+};
 
 const getManifest = async (bucketName) => {
   try {
@@ -228,7 +244,8 @@ const buildManifestFromListing = async (bucketName) => {
   return {
     version: MANIFEST_VERSION,
     projects,
-    about: aboutKeys.map(frameForKey),
+    about: { frames: aboutKeys.map(frameForKey), education: [], skills: [] },
+    contact: [],
   };
 };
 
@@ -259,11 +276,35 @@ const isValidProject = (project) =>
   && Array.isArray(project.frames)
   && project.frames.every(frame => isValidFrame(frame, { allowText: true }));
 
+const MAX_LIST_ITEMS = 40;
+
+const isValidTextList = (value) =>
+  Array.isArray(value)
+  && value.length <= MAX_LIST_ITEMS
+  && value.every(item => typeof item === 'string' && item.length <= MAX_NAME_LENGTH);
+
+// Only links the browser can safely follow; Angular would refuse others anyway.
+const isValidLink = (url) =>
+  typeof url === 'string'
+  && /^(https?:\/\/|mailto:)/.test(url)
+  && url.length <= 500;
+
+const isValidContactItem = (item) =>
+  Boolean(item) && typeof item === 'object'
+  && typeof item.text === 'string'
+  && item.text.trim().length > 0 && item.text.length <= MAX_NAME_LENGTH
+  && (item.url === undefined || isValidLink(item.url));
+
 const isValidManifest = (manifest) => {
   if (!manifest || typeof manifest !== 'object'
       || manifest.version !== MANIFEST_VERSION
       || !Array.isArray(manifest.projects)
-      || !Array.isArray(manifest.about)) {
+      || !manifest.about || typeof manifest.about !== 'object'
+      || !Array.isArray(manifest.about.frames)
+      || !isValidTextList(manifest.about.education)
+      || !isValidTextList(manifest.about.skills)
+      || !Array.isArray(manifest.contact)
+      || manifest.contact.length > MAX_LIST_ITEMS) {
     return false;
   }
   const slugs = manifest.projects.map(project => project?.slug);
@@ -271,7 +312,8 @@ const isValidManifest = (manifest) => {
     return false;
   }
   return manifest.projects.every(isValidProject)
-    && manifest.about.every(frame => isValidFrame(frame, { allowText: false }));
+    && manifest.about.frames.every(frame => isValidFrame(frame, { allowText: false }))
+    && manifest.contact.every(isValidContactItem);
 };
 
 // Strip anything beyond the fields the manifest owns (e.g. signed urls the
@@ -289,7 +331,15 @@ const normalizeManifest = (manifest) => ({
     darkMode: project.darkMode === true,
     frames: project.frames.map(normalizeFrame),
   })),
-  about: manifest.about.map(normalizeFrame),
+  about: {
+    frames: manifest.about.frames.map(normalizeFrame),
+    education: manifest.about.education,
+    skills: manifest.about.skills,
+  },
+  contact: manifest.contact.map(item => ({
+    text: item.text.trim(),
+    ...(item.url ? { url: item.url } : {}),
+  })),
 });
 
 // One media item as consumed by the front-end. Text frames carry their copy
@@ -321,7 +371,7 @@ const portfolioMedia = (bucketName, manifest) => Promise.all(
 );
 
 const aboutMedia = (bucketName, manifest) => Promise.all(
-  manifest.about.map(frame => mediaItem(bucketName, frame, null))
+  manifest.about.frames.map(frame => mediaItem(bucketName, frame, null))
 );
 
 const sectionMediaHandler = (section, buildMedia) => async (req, res) => {
@@ -338,6 +388,13 @@ const sectionMediaHandler = (section, buildMedia) => async (req, res) => {
 // Define API routes BEFORE the catch-all route
 app.get('/api/portfolio/images', sectionMediaHandler('portfolio', portfolioMedia));
 app.get('/api/about/images', sectionMediaHandler('about', aboutMedia));
+
+// Copy shown over the about images, and the contact details.
+app.get('/api/about/text', sectionMediaHandler('about text', async (bucketName, manifest) => ({
+  education: manifest.about.education,
+  skills: manifest.about.skills,
+})));
+app.get('/api/contact', sectionMediaHandler('contact', async (bucketName, manifest) => manifest.contact));
 
 app.post('/api/admin/login', async (req, res) => {
   if (!adminConfigured()) {
@@ -405,7 +462,12 @@ app.get('/api/admin/media', requireAdmin, async (req, res) => {
         darkMode: project.darkMode === true,
         frames: await signFrames(bucketName, project.frames),
       }))),
-      about: await signFrames(bucketName, manifest.about),
+      about: {
+        frames: await signFrames(bucketName, manifest.about.frames),
+        education: manifest.about.education,
+        skills: manifest.about.skills,
+      },
+      contact: manifest.contact,
     });
   } catch (error) {
     console.error('Error building admin media:', error);
@@ -501,7 +563,10 @@ app.delete('/api/admin/media', requireAdmin, async (req, res) => {
           ...project,
           frames: project.frames.filter(frame => frame.key !== key),
         })),
-        about: manifest.about.filter(frame => frame.key !== key),
+        about: {
+          ...manifest.about,
+          frames: manifest.about.frames.filter(frame => frame.key !== key),
+        },
       });
     }
     await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: key }));
