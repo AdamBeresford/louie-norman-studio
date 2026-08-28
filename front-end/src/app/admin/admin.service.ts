@@ -10,10 +10,14 @@ export interface AdminFrame {
     type: AdminFrameType;
     key?: string;
     url?: string;
+    /** Copy shown on a text frame; line breaks are preserved as typed. */
+    text?: string;
 }
 
 export interface AdminProject {
     slug: string;
+    name: string;
+    darkMode: boolean;
     frames: AdminFrame[];
 }
 
@@ -77,6 +81,10 @@ export class AdminService {
     }
     form.append('file', file);
     return this.http.post(target.url, form, { responseType: 'text' });
+  }
+
+  deleteProject(slug: string): Observable<{ deleted: string }> {
+    return this.http.delete<{ deleted: string }>(this.adminUrl + 'projects/' + slug);
   }
 
   deleteMedia(key: string): Observable<{ deleted: string }> {

@@ -21,14 +21,35 @@
       <h1>Studio admin</h1>
       <button (click)="logout()">Log out</button>
     </header>
-    <p class="hint">Frames appear in the order below. Uploads are added to the end of a section.</p>
+    <p class="hint">
+      Pages appear on the site in the order below, and so do the slides within them.
+      New slides are added to the end of a page.
+    </p>
     @if (error) {
       <p class="error">{{ error }}</p>
     }
 
-    @for (project of media.projects; track project.slug) {
+    @for (project of media.projects; let p = $index, lastPage = $last; track project.slug) {
       <section>
-        <h2>{{ projectName(project.slug) }}</h2>
+        <div class="page-header">
+          <input class="page-name" [value]="project.name" [disabled]="busy"
+            (change)="renameProject(project, $any($event.target).value)">
+          <label class="dark-toggle">
+            <input type="checkbox" [checked]="project.darkMode" [disabled]="busy"
+              (change)="setDarkMode(project, $any($event.target).checked)">
+            Dark page
+          </label>
+          <span class="buttons">
+            <button (click)="moveProject(p, -1)" [disabled]="busy || p === 0" title="Move page up">↑</button>
+            <button (click)="moveProject(p, 1)" [disabled]="busy || lastPage" title="Move page down">↓</button>
+            <button class="danger" (click)="deleteProject(project)" [disabled]="busy">Delete page</button>
+          </span>
+        </div>
+
+        @if (isEmpty(project)) {
+          <p class="warning">This page has no slides, so it is hidden from the site until you add one.</p>
+        }
+
         <ul class="frames">
           @for (frame of project.frames; let i = $index, last = $last; track i) {
             <li>
@@ -39,7 +60,15 @@
               } @else {
                 <span class="placeholder">Text</span>
               }
-              <span class="label">{{ i + 1 }}. {{ frame.type }}</span>
+
+              @if (frame.type === 'text') {
+                <textarea class="text-input" rows="4" [value]="frame.text ?? '' " [disabled]="busy"
+                  placeholder="Type the words for this slide. Line breaks appear exactly as you type them."
+                  (change)="saveText(frame, $any($event.target).value)"></textarea>
+              } @else {
+                <span class="label">{{ i + 1 }}. {{ frame.type }}</span>
+              }
+
               <span class="buttons">
                 <button (click)="move(project.frames, i, -1)" [disabled]="busy || i === 0">↑</button>
                 <button (click)="move(project.frames, i, 1)" [disabled]="busy || last">↓</button>
@@ -48,13 +77,27 @@
             </li>
           }
         </ul>
-        <label class="upload">
-          Add image or video
-          <input type="file" accept="image/*,video/*" [disabled]="busy"
-            (change)="upload($event, 'portfolio', project.slug)">
-        </label>
+
+        <div class="page-actions">
+          <label class="upload">
+            Add image or video
+            <input type="file" accept="image/*,video/*" [disabled]="busy"
+              (change)="upload($event, 'portfolio', project.slug)">
+          </label>
+          <button (click)="addTextFrame(project)" [disabled]="busy">Add text slide</button>
+        </div>
       </section>
     }
+
+    <section class="new-page">
+      <h2>Add a page</h2>
+      <p class="hint">A page needs a name and a first image or video.</p>
+      <div class="page-actions">
+        <input class="page-name" placeholder="Page name" [(ngModel)]="newPageName" [disabled]="busy">
+        <input type="file" accept="image/*,video/*" [disabled]="busy" (change)="chooseNewPageFile($event)">
+        <button (click)="addPage()" [disabled]="busy || !newPageName.trim() || !newPageFile">Add page</button>
+      </div>
+    </section>
 
     <section>
       <h2>About</h2>

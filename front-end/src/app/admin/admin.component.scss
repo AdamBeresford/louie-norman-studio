@@ -107,7 +107,80 @@
 
     .upload {
         display: inline-block;
-        margin-top: 0.8rem;
         color: #666;
+    }
+
+    .page-header {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        margin: 2rem 0 0.5rem;
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 0.3rem;
+    }
+
+    .page-name {
+        font: inherit;
+        font-weight: bold;
+        flex-grow: 1;
+        padding: 0.3rem;
+        border: 1px solid transparent;
+        background: transparent;
+
+        &:hover:not(:disabled) {
+            border-color: #ddd;
+        }
+
+        &:focus {
+            border-color: #999;
+            background: #fff;
+        }
+    }
+
+    .dark-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        color: #666;
+        font-size: 0.85rem;
+        white-space: nowrap;
+    }
+
+    .text-input {
+        font: inherit;
+        flex-grow: 1;
+        padding: 0.4rem;
+        border: 1px solid #ccc;
+        resize: vertical;
+    }
+
+    .page-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        margin-top: 0.8rem;
+        flex-wrap: wrap;
+    }
+
+    .new-page {
+        margin-top: 2.5rem;
+        padding: 1rem;
+        background: #fafafa;
+        border: 1px solid #ddd;
+
+        h2 {
+            margin-top: 0;
+        }
+
+        .page-name {
+            border-color: #ccc;
+            background: #fff;
+            flex-grow: 0;
+        }
+    }
+
+    .warning {
+        color: #a60;
+        font-size: 0.9rem;
     }
 }
