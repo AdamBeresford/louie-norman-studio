@@ -7,4 +7,5 @@ export const routes: Routes = [
     { path: '', redirectTo: 'louieNormanStudio', pathMatch: 'full' },
     { path: 'louieNormanStudio', component: PortfolioComponent },
     { path: 'about', component: AboutComponent },
-    { path: 'contact', component: ContactComponent }];
+    { path: 'contact', component: ContactComponent },
+    { path: 'admin', loadComponent: () => import('./admin/admin.component').then(m => m.AdminComponent) }];

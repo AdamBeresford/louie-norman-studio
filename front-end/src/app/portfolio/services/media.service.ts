@@ -17,7 +17,7 @@ export class MediaService {
 
   getAboutImages(): Observable<string[]> {
     return this.http.get<MediaModel[]>(environment.baseUrl + 'about/images').pipe(
-      map(media => media.map(item => item.url))
+      map(media => media.flatMap(item => item.url ? [item.url] : []))
     );
   }
 }

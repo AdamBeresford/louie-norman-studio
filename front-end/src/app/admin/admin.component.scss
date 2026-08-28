@@ -1,0 +1,113 @@
+.admin {
+    min-height: 100vh;
+    padding: 2rem;
+    max-width: 52rem;
+    margin: 0 auto;
+    background: #fff;
+    color: #111;
+
+    h1 {
+        font-size: 1.4rem;
+    }
+
+    h2 {
+        font-size: 1.1rem;
+        margin: 2rem 0 0.5rem;
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 0.3rem;
+    }
+
+    button {
+        font: inherit;
+        padding: 0.3rem 0.7rem;
+        background: #fff;
+        border: 1px solid #999;
+        cursor: pointer;
+
+        &:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+
+        &.danger {
+            border-color: #b33;
+            color: #b33;
+        }
+    }
+
+    .error {
+        color: #b33;
+    }
+
+    .hint,
+    .status {
+        color: #666;
+    }
+
+    .login {
+        display: flex;
+        flex-direction: column;
+        gap: 0.8rem;
+        max-width: 18rem;
+        margin: 20vh auto 0;
+
+        input {
+            font: inherit;
+            padding: 0.4rem;
+            border: 1px solid #999;
+        }
+    }
+
+    header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .frames {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+
+        li {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        img,
+        video,
+        .placeholder {
+            width: 5rem;
+            height: 3.2rem;
+            object-fit: cover;
+            background: #f2f2f2;
+            flex-shrink: 0;
+        }
+
+        .placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 0.8rem;
+        }
+
+        .label {
+            flex-grow: 1;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 0.4rem;
+        }
+    }
+
+    .upload {
+        display: inline-block;
+        margin-top: 0.8rem;
+        color: #666;
+    }
+}

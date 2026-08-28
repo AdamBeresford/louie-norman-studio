@@ -1,0 +1,88 @@
+<div class="admin">
+
+  @if (view === 'loading') {
+    <p class="status">Loading…</p>
+  }
+
+  @if (view === 'login') {
+    <form class="login" (ngSubmit)="login()">
+      <h1>Studio admin</h1>
+      <input type="password" name="password" placeholder="Password"
+        [(ngModel)]="password" required autofocus>
+      <button type="submit" [disabled]="busy || !password">Log in</button>
+      @if (error) {
+        <p class="error">{{ error }}</p>
+      }
+    </form>
+  }
+
+  @if (view === 'dashboard' && media) {
+    <header>
+      <h1>Studio admin</h1>
+      <button (click)="logout()">Log out</button>
+    </header>
+    <p class="hint">Frames appear in the order below. Uploads are added to the end of a section.</p>
+    @if (error) {
+      <p class="error">{{ error }}</p>
+    }
+
+    @for (project of media.projects; track project.slug) {
+      <section>
+        <h2>{{ projectName(project.slug) }}</h2>
+        <ul class="frames">
+          @for (frame of project.frames; let i = $index, last = $last; track i) {
+            <li>
+              @if (frame.type === 'image' && frame.url) {
+                <img [src]="frame.url" alt="">
+              } @else if (frame.type === 'video' && frame.url) {
+                <video [src]="frame.url" muted preload="metadata"></video>
+              } @else {
+                <span class="placeholder">Text</span>
+              }
+              <span class="label">{{ i + 1 }}. {{ frame.type }}</span>
+              <span class="buttons">
+                <button (click)="move(project.frames, i, -1)" [disabled]="busy || i === 0">↑</button>
+                <button (click)="move(project.frames, i, 1)" [disabled]="busy || last">↓</button>
+                <button class="danger" (click)="remove(project.frames, i)" [disabled]="busy">Delete</button>
+              </span>
+            </li>
+          }
+        </ul>
+        <label class="upload">
+          Add image or video
+          <input type="file" accept="image/*,video/*" [disabled]="busy"
+            (change)="upload($event, 'portfolio', project.slug)">
+        </label>
+      </section>
+    }
+
+    <section>
+      <h2>About</h2>
+      <ul class="frames">
+        @for (frame of media.about; let i = $index, last = $last; track i) {
+          <li>
+            @if (frame.type === 'image' && frame.url) {
+              <img [src]="frame.url" alt="">
+            } @else if (frame.type === 'video' && frame.url) {
+              <video [src]="frame.url" muted preload="metadata"></video>
+            } @else {
+              <span class="placeholder">Text</span>
+            }
+            <span class="label">{{ i + 1 }}. {{ frame.type }}</span>
+            <span class="buttons">
+              <button (click)="move(media.about, i, -1)" [disabled]="busy || i === 0">↑</button>
+              <button (click)="move(media.about, i, 1)" [disabled]="busy || last">↓</button>
+              <button class="danger" (click)="remove(media.about, i)" [disabled]="busy">Delete</button>
+            </span>
+          </li>
+        }
+      </ul>
+      <label class="upload">
+        Add image or video
+        <input type="file" accept="image/*,video/*" [disabled]="busy"
+          (change)="upload($event, 'about', null)">
+      </label>
+    </section>
+  }
+
+</div>
