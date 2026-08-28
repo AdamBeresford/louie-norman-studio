@@ -20,6 +20,7 @@ app.set('trust proxy', 1);
 const SIGNED_URL_TTL_SECONDS = 86400;
 
 const MANIFEST_KEY = 'assets/manifest.json';
+const MANIFEST_VERSION = 2;
 const PORTFOLIO_PREFIX = 'assets/portfolio/';
 const ABOUT_PREFIX = 'assets/about/';
 
@@ -157,10 +158,28 @@ const listAllKeys = async (bucketName, prefix) => {
 // for which media is shown and in what order: frame array order is display
 // order, so reordering is a manifest edit rather than an object rename.
 // Returns null when no manifest has been generated yet.
+const titleCaseSlug = (slug) =>
+  slug.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+
+// Fill in anything an older manifest predates, so a v1 document (projects
+// without a name or dark mode, text frames without their copy) still serves.
+const upgradeManifest = (manifest) => ({
+  version: MANIFEST_VERSION,
+  projects: (manifest.projects ?? []).map(project => ({
+    slug: project.slug,
+    name: typeof project.name === 'string' && project.name.trim() ? project.name : titleCaseSlug(project.slug),
+    darkMode: project.darkMode === true,
+    frames: (project.frames ?? []).map(frame => frame.type === 'text'
+      ? { type: 'text', text: typeof frame.text === 'string' ? frame.text : '' }
+      : { type: frame.type, key: frame.key }),
+  })),
+  about: (manifest.about ?? []).map(frame => ({ type: frame.type, key: frame.key })),
+});
+
 const getManifest = async (bucketName) => {
   try {
     const data = await s3Client.send(new GetObjectCommand({ Bucket: bucketName, Key: MANIFEST_KEY }));
-    return JSON.parse(await data.Body.transformToString());
+    return upgradeManifest(JSON.parse(await data.Body.transformToString()));
   } catch (error) {
     if (error.name === 'NoSuchKey') {
       return null;
@@ -178,11 +197,11 @@ const saveManifest = async (bucketName, manifest) => {
   }));
 };
 
-// A legacy .pdf placeholder object becomes an explicit text frame; the
-// front-end renders the project's copy for it, so it needs no object key.
+// A legacy .pdf placeholder object becomes an explicit text frame, which
+// carries its copy inline rather than pointing at an object.
 const frameForKey = (key) => {
   const type = mediaTypeForKey(key);
-  return type === 'text' ? { type } : { type, key };
+  return type === 'text' ? { type, text: '' } : { type, key };
 };
 
 // Recreate the manifest structure from a raw bucket listing, preserving the
@@ -200,27 +219,29 @@ const buildManifestFromListing = async (bucketName) => {
     }
     let project = projects.find(candidate => candidate.slug === slug);
     if (!project) {
-      project = { slug, frames: [] };
+      project = { slug, name: titleCaseSlug(slug), darkMode: false, frames: [] };
       projects.push(project);
     }
     project.frames.push(frameForKey(key));
   }
 
   return {
-    version: 1,
+    version: MANIFEST_VERSION,
     projects,
     about: aboutKeys.map(frameForKey),
   };
 };
 
 const SLUG_PATTERN = /^[a-z0-9-]+$/;
+const MAX_NAME_LENGTH = 80;
+const MAX_TEXT_LENGTH = 5000;
 
 const isValidFrame = (frame, { allowText }) => {
   if (!frame || typeof frame !== 'object') {
     return false;
   }
   if (frame.type === 'text') {
-    return allowText;
+    return allowText && typeof frame.text === 'string' && frame.text.length <= MAX_TEXT_LENGTH;
   }
   if (frame.type !== 'image' && frame.type !== 'video') {
     return false;
@@ -229,37 +250,54 @@ const isValidFrame = (frame, { allowText }) => {
     && (frame.key.startsWith(PORTFOLIO_PREFIX) || frame.key.startsWith(ABOUT_PREFIX));
 };
 
-const isValidManifest = (manifest) =>
-  Boolean(manifest) && typeof manifest === 'object'
-  && manifest.version === 1
-  && Array.isArray(manifest.projects)
-  && manifest.projects.every(project =>
-    project && typeof project === 'object'
-    && typeof project.slug === 'string' && SLUG_PATTERN.test(project.slug)
-    && Array.isArray(project.frames)
-    && project.frames.every(frame => isValidFrame(frame, { allowText: true })))
-  && Array.isArray(manifest.about)
-  && manifest.about.every(frame => isValidFrame(frame, { allowText: false }));
+const isValidProject = (project) =>
+  Boolean(project) && typeof project === 'object'
+  && typeof project.slug === 'string' && SLUG_PATTERN.test(project.slug)
+  && typeof project.name === 'string'
+  && project.name.trim().length > 0 && project.name.length <= MAX_NAME_LENGTH
+  && (project.darkMode === undefined || typeof project.darkMode === 'boolean')
+  && Array.isArray(project.frames)
+  && project.frames.every(frame => isValidFrame(frame, { allowText: true }));
+
+const isValidManifest = (manifest) => {
+  if (!manifest || typeof manifest !== 'object'
+      || manifest.version !== MANIFEST_VERSION
+      || !Array.isArray(manifest.projects)
+      || !Array.isArray(manifest.about)) {
+    return false;
+  }
+  const slugs = manifest.projects.map(project => project?.slug);
+  if (new Set(slugs).size !== slugs.length) {
+    return false;
+  }
+  return manifest.projects.every(isValidProject)
+    && manifest.about.every(frame => isValidFrame(frame, { allowText: false }));
+};
 
 // Strip anything beyond the fields the manifest owns (e.g. signed urls the
 // admin client holds alongside each frame).
 const normalizeFrame = (frame) =>
-  frame.type === 'text' ? { type: 'text' } : { type: frame.type, key: frame.key };
+  frame.type === 'text'
+    ? { type: 'text', text: frame.text }
+    : { type: frame.type, key: frame.key };
 
 const normalizeManifest = (manifest) => ({
-  version: 1,
+  version: MANIFEST_VERSION,
   projects: manifest.projects.map(project => ({
     slug: project.slug,
+    name: project.name.trim(),
+    darkMode: project.darkMode === true,
     frames: project.frames.map(normalizeFrame),
   })),
   about: manifest.about.map(normalizeFrame),
 });
 
-// One media item as consumed by the front-end. Text frames carry no object,
-// so their url is null.
+// One media item as consumed by the front-end. Text frames carry their copy
+// instead of an object, so their url is null.
 const mediaItem = async (bucketName, frame, project) => ({
   type: frame.type,
   project,
+  text: frame.type === 'text' ? frame.text : null,
   url: frame.key
     ? await getSignedUrl(
         s3Client,
@@ -269,9 +307,17 @@ const mediaItem = async (bucketName, frame, project) => ({
     : null,
 });
 
+// Projects in sidebar order, each with its frames in display order. A project
+// with no frames is skipped so a half-built page never reaches the site.
 const portfolioMedia = (bucketName, manifest) => Promise.all(
-  manifest.projects.flatMap(project =>
-    project.frames.map(frame => mediaItem(bucketName, frame, project.slug)))
+  manifest.projects
+    .filter(project => project.frames.length > 0)
+    .map(async project => ({
+      slug: project.slug,
+      name: project.name,
+      darkMode: project.darkMode === true,
+      frames: await Promise.all(project.frames.map(frame => mediaItem(bucketName, frame, project.slug))),
+    }))
 );
 
 const aboutMedia = (bucketName, manifest) => Promise.all(
@@ -355,6 +401,8 @@ app.get('/api/admin/media', requireAdmin, async (req, res) => {
       version: manifest.version,
       projects: await Promise.all(manifest.projects.map(async project => ({
         slug: project.slug,
+        name: project.name,
+        darkMode: project.darkMode === true,
         frames: await signFrames(bucketName, project.frames),
       }))),
       about: await signFrames(bucketName, manifest.about),
@@ -386,9 +434,10 @@ app.post('/api/admin/upload-url', requireAdmin, async (req, res) => {
     if (section === 'about') {
       prefix = ABOUT_PREFIX;
     } else if (section === 'portfolio') {
-      const manifest = (await getManifest(bucketName)) ?? await buildManifestFromListing(bucketName);
-      if (typeof project !== 'string' || !manifest.projects.some(candidate => candidate.slug === project)) {
-        return res.status(400).json({ error: 'Unknown project' });
+      // The slug need not exist yet: creating a page uploads its first file
+      // before the project is added to the manifest.
+      if (typeof project !== 'string' || !SLUG_PATTERN.test(project)) {
+        return res.status(400).json({ error: 'Invalid project' });
       }
       prefix = `${PORTFOLIO_PREFIX}${project}/`;
     } else {
@@ -460,6 +509,33 @@ app.delete('/api/admin/media', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Error deleting media:', error);
     res.status(500).json({ error: 'Failed to delete media' });
+  }
+});
+
+// Remove a page and every object belonging to it.
+app.delete('/api/admin/projects/:slug', requireAdmin, async (req, res) => {
+  try {
+    const bucketName = process.env.AWS_BUCKET_NAME;
+    const { slug } = req.params;
+    if (!SLUG_PATTERN.test(slug)) {
+      return res.status(400).json({ error: 'Invalid page' });
+    }
+    const manifest = await getManifest(bucketName);
+    if (!manifest?.projects.some(project => project.slug === slug)) {
+      return res.status(404).json({ error: 'Unknown page' });
+    }
+    await saveManifest(bucketName, {
+      ...manifest,
+      projects: manifest.projects.filter(project => project.slug !== slug),
+    });
+    // Clear the folder itself, so a page of the same name starts empty.
+    const keys = await listAllKeys(bucketName, `${PORTFOLIO_PREFIX}${slug}/`);
+    await Promise.all(keys.map(key =>
+      s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: key }))));
+    res.json({ deleted: slug, objects: keys.length });
+  } catch (error) {
+    console.error('Error deleting page:', error);
+    res.status(500).json({ error: 'Failed to delete page' });
   }
 });
 
