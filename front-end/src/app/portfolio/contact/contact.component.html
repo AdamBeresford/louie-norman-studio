@@ -2,18 +2,15 @@
   <app-header></app-header>
   <div class="sidebar">
     <ul>
-      <li>{{'Louie Norman'}}</li>
-      <li>{{'louienorman.studio@gmail.com'}}</li>
-      <li>
-        <a href="https://www.instagram.com/__louienorman?igsh=YjY1N2ZvYjd6aXFy&utm_source=qr" target="_blank">
-          {{'@__louienorman'}}
-        </a>
-      </li>
-      <li>
-        <a href="https://www.linkedin.com/in/louie-norman-26a625226?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=ios_app" target="_blank">
-          {{'LinkedIn'}}
-        </a>
-      </li>
+      @for (item of items; track $index) {
+        <li>
+          @if (item.url) {
+            <a [href]="item.url" target="_blank">{{ item.text }}</a>
+          } @else {
+            {{ item.text }}
+          }
+        </li>
+      }
     </ul>
   </div>
 </div>

@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { map, Observable } from 'rxjs';
 import { MediaModel } from '../model/media-model';
 import { ProjectConfig } from '../model/project-config';
+import { AboutText, ContactItem } from '../model/page-text';
 import { environment } from '../../../environments/environment';
 
 @Injectable({
@@ -21,5 +22,13 @@ export class MediaService {
     return this.http.get<MediaModel[]>(environment.baseUrl + 'about/images').pipe(
       map(media => media.flatMap(item => item.url ? [item.url] : []))
     );
+  }
+
+  getAboutText(): Observable<AboutText> {
+    return this.http.get<AboutText>(environment.baseUrl + 'about/text');
+  }
+
+  getContactItems(): Observable<ContactItem[]> {
+    return this.http.get<ContactItem[]>(environment.baseUrl + 'contact');
   }
 }

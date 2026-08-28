@@ -3,6 +3,7 @@ import { Component, OnInit, inject } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { HeaderComponent } from '../header/header.component';
 import { MediaService } from '../services/media.service';
+import { ImagePreloader } from '../services/image-preloader';
 
 @Component({
   selector: 'app-about',
@@ -19,34 +20,21 @@ export class AboutComponent implements OnInit {
   images: string[] = [];
   backgroundImage = '';
 
-  educationItems = [
-    'Education',
-    'Kingston School of Art',
-    'Foundation Diploma (2018-19) - Distinction',
-    'Graphic design (BA) (2019-2023) - 1st Class'
-  ];
-
-  skillsItems = [
-    'Skills',
-    'Camera Operator',
-    'Adobe InDesign',
-    'Adobe Photoshop',
-    'Adobe Permier Pro',
-    'Adobe After Effects',
-    'Adobe Lightroom/Classic',
-    'DaVinci Resolve'
-  ];
+  educationItems: string[] = [];
+  skillsItems: string[] = [];
 
   private mediaService = inject(MediaService);
+  private preloader = inject(ImagePreloader);
 
   ngOnInit(): void {
     this.mediaService.getAboutImages().subscribe(images => {
       this.images = images;
       this.showImage(0);
-      // Warm the browser cache so cycling through the images is instant.
-      for (const image of images) {
-        new Image().src = image;
-      }
+      this.preloader.preload(images);
+    });
+    this.mediaService.getAboutText().subscribe(text => {
+      this.educationItems = text.education;
+      this.skillsItems = text.skills;
     });
   }
 
