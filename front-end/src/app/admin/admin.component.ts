@@ -1,7 +1,7 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
-import { AdminFrame, AdminMedia, AdminProject, AdminService } from './admin.service';
+import { AdminContactItem, AdminFrame, AdminMedia, AdminProject, AdminService } from './admin.service';
 
 /**
  * Media management for the site owner: create and order the pages shown in the
@@ -218,7 +218,7 @@ export class AdminComponent implements OnInit {
       await firstValueFrom(this.adminService.uploadToS3(target, file));
       const frames = project
         ? this.media.projects.find(candidate => candidate.slug === project)!.frames
-        : this.media.about;
+        : this.media.about.frames;
       frames.push({ type: target.type, key: target.key });
       await firstValueFrom(this.adminService.saveManifest(this.media));
       // Reload so the new frame gets its signed url.
@@ -230,6 +230,67 @@ export class AdminComponent implements OnInit {
       this.busy = false;
       input.value = '';
     }
+  }
+
+  // --- about and contact text ----------------------------------------------
+
+  /** The lists are edited as one item per line, which is how they render. */
+  linesOf(items: string[]): string {
+    return items.join('\n');
+  }
+
+  async saveAboutList(list: 'education' | 'skills', value: string): Promise<void> {
+    if (!this.media) {
+      return;
+    }
+    const items = value.split('\n').map(line => line.trim()).filter(Boolean);
+    this.media.about[list] = items;
+    await this.save();
+  }
+
+  addContactItem(): void {
+    this.media?.contact.push({ text: '' });
+  }
+
+  async saveContactItem(item: AdminContactItem, text: string, url: string): Promise<void> {
+    const trimmedText = text.trim();
+    const trimmedUrl = url.trim();
+    if (!trimmedText) {
+      this.error = 'A contact line needs some text';
+      return;
+    }
+    if (trimmedUrl && !/^(https?:\/\/|mailto:)/.test(trimmedUrl)) {
+      this.error = 'A link must start with https://, http:// or mailto:';
+      return;
+    }
+    item.text = trimmedText;
+    if (trimmedUrl) {
+      item.url = trimmedUrl;
+    } else {
+      delete item.url;
+    }
+    await this.save();
+  }
+
+  async removeContactItem(index: number): Promise<void> {
+    if (!this.media || !confirm('Remove this contact line?')) {
+      return;
+    }
+    this.media.contact.splice(index, 1);
+    await this.save();
+  }
+
+  async moveContactItem(index: number, delta: number): Promise<void> {
+    const items = this.media?.contact;
+    if (!items) {
+      return;
+    }
+    const target = index + delta;
+    if (target < 0 || target >= items.length) {
+      return;
+    }
+    [items[index], items[target]] = [items[target], items[index]];
+    await this.save();
   }
 
   private async loadMedia(): Promise<void> {

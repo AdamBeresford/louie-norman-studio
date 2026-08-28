@@ -21,11 +21,25 @@ export interface AdminProject {
     frames: AdminFrame[];
 }
 
+/** One contact line; a url turns it into a link on the site. */
+export interface AdminContactItem {
+    text: string;
+    url?: string;
+}
+
+/** The about page: its images, and the two lists shown over them. */
+export interface AdminAbout {
+    frames: AdminFrame[];
+    education: string[];
+    skills: string[];
+}
+
 /** The manifest as served to the admin UI. */
 export interface AdminMedia {
     version: number;
     projects: AdminProject[];
-    about: AdminFrame[];
+    about: AdminAbout;
+    contact: AdminContactItem[];
 }
 
 /** A presigned S3 POST the browser uploads a file straight to. */

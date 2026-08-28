@@ -100,9 +100,9 @@
     </section>
 
     <section>
-      <h2>About</h2>
+      <h2>About images</h2>
       <ul class="frames">
-        @for (frame of media.about; let i = $index, last = $last; track i) {
+        @for (frame of media.about.frames; let i = $index, last = $last; track i) {
           <li>
             @if (frame.type === 'image' && frame.url) {
               <img [src]="frame.url" alt="">
@@ -113,9 +113,9 @@
             }
             <span class="label">{{ i + 1 }}. {{ frame.type }}</span>
             <span class="buttons">
-              <button (click)="move(media.about, i, -1)" [disabled]="busy || i === 0">↑</button>
-              <button (click)="move(media.about, i, 1)" [disabled]="busy || last">↓</button>
-              <button class="danger" (click)="remove(media.about, i)" [disabled]="busy">Delete</button>
+              <button (click)="move(media.about.frames, i, -1)" [disabled]="busy || i === 0">↑</button>
+              <button (click)="move(media.about.frames, i, 1)" [disabled]="busy || last">↓</button>
+              <button class="danger" (click)="remove(media.about.frames, i)" [disabled]="busy">Delete</button>
             </span>
           </li>
         }
@@ -125,6 +125,50 @@
         <input type="file" accept="image/*,video/*" [disabled]="busy"
           (change)="upload($event, 'about', null)">
       </label>
+    </section>
+
+    <section>
+      <h2>About page words</h2>
+      <p class="hint">
+        The two lists shown over the about images. One item per line — the first
+        line is the heading.
+      </p>
+      <div class="lists">
+        <label>
+          Left list
+          <textarea class="text-input" rows="6" [value]="linesOf(media.about.education)" [disabled]="busy"
+            (change)="saveAboutList('education', $any($event.target).value)"></textarea>
+        </label>
+        <label>
+          Right list
+          <textarea class="text-input" rows="9" [value]="linesOf(media.about.skills)" [disabled]="busy"
+            (change)="saveAboutList('skills', $any($event.target).value)"></textarea>
+        </label>
+      </div>
+    </section>
+
+    <section>
+      <h2>Contact page</h2>
+      <p class="hint">
+        Each line appears on the contact page. Add a link address to turn a line
+        into a link — leave it empty for plain text.
+      </p>
+      <ul class="contact-items">
+        @for (item of media.contact; let i = $index, last = $last; track i) {
+          <li>
+            <input class="contact-text" placeholder="Text" [value]="item.text" [disabled]="busy"
+              #text (change)="saveContactItem(item, text.value, url.value)">
+            <input class="contact-url" placeholder="Link address (optional)" [value]="item.url ?? ''" [disabled]="busy"
+              #url (change)="saveContactItem(item, text.value, url.value)">
+            <span class="buttons">
+              <button (click)="moveContactItem(i, -1)" [disabled]="busy || i === 0">↑</button>
+              <button (click)="moveContactItem(i, 1)" [disabled]="busy || last">↓</button>
+              <button class="danger" (click)="removeContactItem(i)" [disabled]="busy">Remove</button>
+            </span>
+          </li>
+        }
+      </ul>
+      <button (click)="addContactItem()" [disabled]="busy">Add contact line</button>
     </section>
   }
 
